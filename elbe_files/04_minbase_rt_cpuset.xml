@@ -1,0 +1,106 @@
+<!--
+SPDX-License-Identifier: 0BSD
+SPDX-FileCopyrightText: Linutronix GmbH
+-->
+<ns0:RootFileSystem xmlns:ns0="https://www.linutronix.de/projects/Elbe"
+		    xmlns:xi="http://www.w3.org/2003/XInclude"
+		    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		    created="2009-05-20T08:50:56" revision="6"
+		    xsi:schemaLocation="https://www.linutronix.de/projects/Elbe dbsfed.xsd">
+	<project>
+		<name>ese_rt</name>
+		<version>1.0</version>
+		<description>
+			This is the first attempt to create a non-rt-image for the ls1028ardb
+		</description>
+		<buildtype>aarch64</buildtype>
+		<mirror>
+			<primary_host>deb.debian.org</primary_host>
+			<primary_path>/debian</primary_path>
+			<primary_proto>http</primary_proto>
+		</mirror>
+		<suite>bookworm</suite>
+	</project>
+	<target>
+		<hostname>ese</hostname>
+		<domain></domain>
+		<passwd_hashed>$6$rounds=656000$89EDRQvqmF2ubMoO$d87us1XOTuqVXvFUrakGSRxAjaN9iu.6nFyMrJjK6ZulF6WmF8z1Db/uxcbCQLSfnKPStdDRrFSMdcqLYgRHf.</passwd_hashed>
+		<console>ttyS0,115200</console>
+		<debootstrap>
+			<variant>minbase</variant>
+		</debootstrap>
+		<images>
+			<msdoshd>
+				<name>sdcard.img</name>
+				<size>4GB</size>
+				<partition>
+					<size>remain</size> 
+					<label>rfs</label>
+				</partition> 
+			</msdoshd>
+		</images>
+		<fstab>
+			<bylabel>
+				<label>rfs</label>
+				<mountpoint>/</mountpoint>
+				<fs>
+					<type>ext4</type>
+					<fs-finetuning>
+						<device-command>tune2fs -i 0 {device}</device-command>
+					</fs-finetuning>
+				</fs>
+			</bylabel>
+		</fstab>
+		<finetuning>
+			<ln path="/lib/systemd/systemd">/sbin/init</ln>
+			<adduser passwd_hashed="$6$rounds=656000$Q.yB60sXEa1tzUK2$Yet3Iio9R4E2LOhPIEXjePgtO0mwwYWELudiL7DGUQkYwwZ5Kp02unrzRqj.QtMXzB5RtiqPYDkwPTfbm7j1X/" create_home="true" shell="/bin/bash">ese</adduser>
+			<rm>/var/cache/apt/archives/*.deb</rm>
+			<file dst="/boot/ls1028ardb_boot.txt" mode="644">
+				ext4load mmc 0:1 $kernel_addr_r vmlinuz
+				ext4load mmc 0:1 $fdt_addr_r usr/lib/linux-image-6.1.0-27-rt-arm64/freescale/fsl-ls1028a-rdb.dtb
+				ext4load mmc 0:1 $ramdisk_addr_r initrd.img
+
+				setenv bootargs "console=ttyS0,115200 root=/dev/mmcblk0p1 rw rootwait isolcpus=1 arm-smmu.disable_bypass=0 cpufreq.default_governor=performance irqaffinity=0 threadirqs highres=on processor.max_cstate=0"
+
+				booti $kernel_addr_r $ramdisk_addr_r:$filesize $fdt_addr_r
+			</file>
+			<command>mkimage -T script -C none -n 'ls1028ardb_boot script' -d /boot/ls1028ardb_boot.txt /boot/ls1028ardb_boot.scr</command>
+			<file dst="/etc/network/interfaces" mode="644">
+				auto end0
+				allow-hotplug end0
+				iface end0 inet static
+					address 192.168.3.10
+					netmask 255.255.255.0
+			</file>
+			<file dst="/root/mkcpuset.sh" mode="764">
+				mkdir /dev/cpuset
+				mount -t cpuset cpuset /dev/cpuset
+				mkdir /dev/cpuset/rt_cpuset
+				cd /dev/cpuset/rt_cpuset
+				echo 1 > cpus
+				echo 0 > mems
+				echo 1 > cpu_exclusive
+				echo 1 > mem_exclusive
+				echo 0 > sched_load_balance
+
+				for item in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+					echo "performance"> $item
+				done
+			</file>
+		</finetuning>
+		<pkg-list>
+			<pkg>systemd</pkg>
+			<pkg>u-boot-tools</pkg>
+			<pkg>linux-image-rt-arm64</pkg>
+			<pkg>nano</pkg>
+			<pkg>ifupdown</pkg>
+			<pkg>net-tools</pkg>
+			<pkg>iproute2</pkg>
+			<pkg>openssh-server</pkg>
+			<pkg>rsync</pkg>
+			<pkg>tmux</pkg>
+			<pkg>rt-tests</pkg>
+			<pkg>htop</pkg>
+		</pkg-list>
+	</target>
+</ns0:RootFileSystem>

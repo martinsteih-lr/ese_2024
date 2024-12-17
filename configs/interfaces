@@ -1,0 +1,31 @@
+
+auto lo
+iface lo inet loopback
+
+auto end1
+iface end1 inet dhcp
+
+auto end1:1
+iface end1:1 inet static
+	address 192.168.0.1
+	netmask 255.255.255.0
+
+auto br0
+iface br0 inet manual
+	up ip link add name $IFACE type bridge
+	up ip link set dev $IFACE up
+	up ip link set dev swp0 master $IFACE up
+	up ip link set dev swp1 master $IFACE up
+	up ip link set dev swp2 master $IFACE up
+	up ip link set dev swp3 master $IFACE up
+	up ip link set $IFACE type bridge stp_state 1
+	up mstpctl addbridge $IFACE
+	up mstpctl setforcevers $IFACE mstp
+	up mstpctl setvid2fid $IFACE 0:1
+	down mstpctl delbridge $IFACE
+	down ip link set dev swp0 master $IFACE down
+	down ip link set dev swp1 master $IFACE down
+	down ip link set dev swp2 master $IFACE down
+	down ip link set dev swp3 master $IFACE down
+	down ip link set dev $IFACE down
+	down ip link delete dev $IFACE

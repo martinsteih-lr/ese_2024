@@ -1,0 +1,244 @@
+<!--
+SPDX-License-Identifier: 0BSD
+SPDX-FileCopyrightText: Linutronix GmbH
+-->
+<ns0:RootFileSystem xmlns:ns0="https://www.linutronix.de/projects/Elbe"
+		    xmlns:xi="http://www.w3.org/2003/XInclude"
+		    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		    created="2009-05-20T08:50:56" revision="6"
+		    xsi:schemaLocation="https://www.linutronix.de/projects/Elbe dbsfed.xsd">
+	<project>
+		<name>ese_rt_bridged_endpoint</name>
+		<version>1.0</version>
+		<description>
+			This is the first attempt to create a non-rt-image for the ls1028ardb, which configures the device as switch
+		</description>
+		<buildtype>aarch64</buildtype>
+		<mirror>
+			<primary_host>deb.debian.org</primary_host>
+			<primary_path>/debian</primary_path>
+			<primary_proto>http</primary_proto>
+		</mirror>
+		<suite>bookworm</suite>
+	</project>
+	<target>
+		<hostname>ese</hostname>
+		<domain></domain>
+		<passwd_hashed>$6$rounds=656000$89EDRQvqmF2ubMoO$d87us1XOTuqVXvFUrakGSRxAjaN9iu.6nFyMrJjK6ZulF6WmF8z1Db/uxcbCQLSfnKPStdDRrFSMdcqLYgRHf.</passwd_hashed>
+		<console>ttyS0,115200</console>
+		<debootstrap>
+			<variant>minbase</variant>
+		</debootstrap>
+		<images>
+			<msdoshd>
+				<name>sdcard.img</name>
+				<size>4GB</size>
+				<partition>
+					<size>remain</size> 
+					<label>rfs</label>
+				</partition> 
+			</msdoshd>
+		</images>
+		<fstab>
+			<bylabel>
+				<label>rfs</label>
+				<mountpoint>/</mountpoint>
+				<fs>
+					<type>ext4</type>
+					<fs-finetuning>
+						<device-command>tune2fs -i 0 {device}</device-command>
+					</fs-finetuning>
+				</fs>
+			</bylabel>
+		</fstab>
+		<finetuning>
+			<ln path="/lib/systemd/systemd">/sbin/init</ln>
+			<adduser passwd_hashed="$6$rounds=656000$Q.yB60sXEa1tzUK2$Yet3Iio9R4E2LOhPIEXjePgtO0mwwYWELudiL7DGUQkYwwZ5Kp02unrzRqj.QtMXzB5RtiqPYDkwPTfbm7j1X/" create_home="true" shell="/bin/bash">ese</adduser>
+			<rm>/var/cache/apt/archives/*.deb</rm>
+			<file dst="/boot/ls1028ardb_boot.txt" mode="644">
+				ext4load mmc 0:1 $kernel_addr_r vmlinuz
+				ext4load mmc 0:1 $fdt_addr_r boot/fsl-ls1028a-rdb.dtb
+				ext4load mmc 0:1 $ramdisk_addr_r initrd.img
+
+				setenv bootargs "console=ttyS0,115200 root=/dev/mmcblk0p1 rw rootwait isolcpus=1 arm-smmu.disable_bypass=0 cpufreq.default_governor=performance irqaffinity=0 threadirqs highres=on processor.max_cstate=0"
+
+				booti $kernel_addr_r $ramdisk_addr_r:$filesize $fdt_addr_r
+			</file>
+			<command>mkimage -T script -C none -n 'ls1028ardb_boot script' -d /boot/ls1028ardb_boot.txt /boot/ls1028ardb_boot.scr</command>
+			<file dst="/etc/network/interfaces" mode="644">
+				auto end0
+				allow-hotplug end0
+				iface end0 inet static
+					address 192.168.3.10
+					netmask 255.255.255.0
+
+				
+				auto lo
+				iface lo inet loopback
+
+				auto br0
+				allow-hotplug br0
+				iface br0 inet static
+					address 192.168.200.1
+					netmask 255.255.255.0
+					bridge_ports swp0 swp1 swp2 swp3
+					up ip link add name $IFACE type bridge
+					up ip link set dev $IFACE up
+					up ip link set dev swp0 master $IFACE up
+					up ip link set dev swp1 master $IFACE up
+					up ip link set dev swp2 master $IFACE up
+					up ip link set dev swp3 master $IFACE up
+					up ip link set $IFACE type bridge stp_state 1
+					up mstpctl addbridge $IFACE
+					up mstpctl setforcevers $IFACE mstp
+					up mstpctl setvid2fid $IFACE 0:1
+					down mstpctl delbridge $IFACE
+					down ip link set dev swp0 master $IFACE down
+					down ip link set dev swp1 master $IFACE down
+					down ip link set dev swp2 master $IFACE down
+					down ip link set dev swp3 master $IFACE down
+					down ip link set dev $IFACE down
+					down ip link delete dev $IFACE
+
+					auto br0.20
+					iface br0.20 inet static
+					    address 192.168.20.10
+					    netmask 255.255.255.0
+					    vlan-raw-device br0
+					    post-up ip link set dev br0.20 type vlan egress-qos-map 7:7
+
+					auto br0.0
+					iface br0.0 inet static
+					    address 192.168.0.10
+					    netmask 255.255.255.0
+					    vlan-raw-device br0 
+					    post-up ip link set dev br0.0 type vlan egress-qos-map 1:1
+			</file>
+			<file dst="/usr/sbin/mkcpuset.sh" mode="764">
+				mkdir /dev/cpuset
+				mount -t cpuset cpuset /dev/cpuset
+				mkdir /dev/cpuset/rt_cpuset
+				cd /dev/cpuset/rt_cpuset
+				echo 1 > cpus
+				echo 0 > mems
+				echo 1 > cpu_exclusive
+				echo 1 > mem_exclusive
+				echo 0 > sched_load_balance
+			</file>
+			<file dst="/etc/systemd/system/cpuset.service" mode="764">
+				[Unit] 
+				Description=Create rt cpuset
+				After=network.target 
+
+				[Service]
+				Type=oneshot 
+				ExecStart=/bin/sh /usr/sbin/mkcpuset.sh 
+
+				[Install]
+				WantedBy=multi-user.target
+				
+			</file>
+			<command>systemctl enable cpuset.service</command>
+			<file dst="/etc/ptp.conf" mode="644">
+				[global]
+				gmCapable            1
+				twoStepFlag          1
+				tx_timestamp_timeout 500
+				time_stamping        hardware
+				delay_mechanism      P2P
+
+				[swp0]
+				delay_mechanism      P2P
+
+				[swp1]
+				delay_mechanism      P2P
+
+				[swp2]
+				delay_mechanism      P2P
+
+				[swp3]
+				delay_mechanism      P2P
+			</file>
+			<file dst="/etc/systemd/system/ptp.service" mode="764">
+				[Unit]
+				Description=Start PTP
+				After=network.target
+
+				[Service]
+				Type=simple
+				Restart=on-failure
+				RestartSec=5
+				ExecStart= /usr/sbin/ptp4l -f /etc/ptp.conf -i swp0 -i swp1 -i swp2 -i swp3 -m
+
+				[Install]
+				WantedBy=multi-user.target
+			</file>
+			<command>systemctl enable ptp.service</command>
+			<file dst="/etc/systemd/system/clock_sync.service" mode="764">
+				[Unit]
+				Description=Sync system clock
+				After=network.target
+				Requires=ptp.service
+
+				[Service]
+				Type=simple
+				Restart=on-failure
+				RestartSec=5
+				ExecStart= /usr/sbin/phc2sys -s /dev/ptp0 -c CLOCK_REALTIME -O 0 -m
+
+				[Install]
+				WantedBy=multi-user.target
+			</file>
+			<command>systemctl enable clock_sync.service</command>
+			<file dst="/usr/sbin/setup_qdisc.sh" mode="764">
+				#!/bin/bash
+				DEV=end1
+
+				#add root qdisc with 7 TSN traffic classes
+				/usr/sbin/tc qdisc add dev $DEV root mqprio num_tc 8 map 0 1 2 3 4 5 6 7 7 7 7 7 7 7 7 7 hw 1 mode channel
+
+				#replace default qdisc for each traffic class from pfifo_fast to pfifo
+				HANDLE=$(/usr/sbin/tc qdisc show dev $DEV root| awk 'NR==1{print $3}')
+
+				#replace default qdisc for each traffic class from pfifo_fast to pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}8 pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}7 pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}6 pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}5 pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}4 pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}3 pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}2 pfifo
+				/usr/sbin/tc qdisc replace dev $DEV parent ${HANDLE}1 pfifo
+			</file>
+			<file dst="/etc/systemd/system/qdisc.service" mode="764">
+				[Unit]
+				Description=Setup TSN Qdiscs and VLANS
+				After=network.target
+
+				[Service]
+				Type=oneshot
+				RemainAfterExit=yes
+				ExecStart= /bin/bash /usr/sbin/setup_qdisc.sh
+
+				[Install]
+				WantedBy=multi-user.target
+			</file>
+			<command>systemctl enable qdisc.service</command>
+		</finetuning>
+		<pkg-list>
+			<pkg>u-boot-tools</pkg>
+			<pkg>linux-image-rt-arm64</pkg>
+			<pkg>systemd</pkg>
+			<pkg>nano</pkg>
+			<pkg>openssh-server</pkg>
+			<pkg>rt-tests</pkg>
+			<pkg>htop</pkg>
+
+			<pkg>net-tools</pkg>
+			<pkg>bridge-utils</pkg>
+			<pkg>iproute2</pkg>
+			<pkg>ifupdown2</pkg>
+			<pkg>linuxptp</pkg>
+		</pkg-list>
+	</target>
+</ns0:RootFileSystem>
